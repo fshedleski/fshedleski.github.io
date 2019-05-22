@@ -1,0 +1,211 @@
+---
+title: "Final"
+author: "Franklin Shedleski"
+date: "May 22, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, messages=FALSE, message=FALSE, error=FALSE)
+```
+
+sample: https://jonsm.github.io/
+
+# _Introduction_ #
+Suicides are a major issue in many of the nations of the world. However, they can be very hard to predict the causes of. Using data compiled by the United Nation Develpment Program, the World Bank, Szamil, and the World Health Organization along with standard data science procedures many coorelations can be drawn to illustrate the impact of a country's Gross Domestic Product (GDP) and Human Development Index (HDI) on suicide rates of different age groups and genders.
+
+# _Tools_ #
+This tutorial uses:
+\begin{itemize}
+  \item R 3.5.2
+  \item RStudio 1.1.463
+\end{itemize}
+The R packages required are:
+\begin{itemize}
+  \item tidyverse
+\end{itemize}
+
+All packages were installed via Tools > Install Packages in RStudio
+Make sure to import them into your r script before continuing with the tutorial.
+```{r library_setup} 
+library(tidyverse)
+```
+
+# _Data Acquisition_ #
+There is a meta-data set that was compiled from the sources mentioned in the introduction hosted on kaggle. This data set is in a form known as comma-seperated values (CSV). Download is from https://www.kaggle.com/russellyates88/suicide-rates-overview-1985-to-2016. If the dataset downloaded as a zip folder make sure to unzip it and put the csv in the same folder as your R script. Now load the csv into R using `read_csv()`
+```{r load_dataset}
+# load data set into a dataframe
+data_tab <- read_csv("master.csv")
+# display first 6 rows of data
+data_tab %>% head()
+```
+
+# _Tidying Data_ #
+Data Tidying is a step during which the parsed data is cleaned and made ready for exploratory analysis. This commonly involves fixing obfuscated cells in the dataframe, correcting attribute data types, and dealing with missing data.
+
+## _Obfuscated Cell Management_ ##
+First we must correct some of our attribute representations so that they are easier to use. Many columns while being easily human readable are hard to interact with such as the `age` column. the `sex` column can also be simplified to M or F.
+```{r tidying1} 
+# cleaning up data entries
+data_tab <-
+  data_tab %>%
+  # Clean up age column using regex from the stringr package
+  mutate(age = str_extract(age, "(\\d+-\\d+)|(75\\+)")) %>%
+  # Converting sex to letter encordings
+  mutate(sex = ifelse(sex=="female", "F", ifelse(sex=="male", "M", NA)))
+
+# displaying tidied data
+data_tab %>%  head()
+```
+While working with poor cell formats we should also consider fixing some of the column headers that are poorly formated. 
+```{r header_correction}
+# create vector of new column names
+cols <- c("country","year","sex","age","suicides","pop","suicides_per_100k","entity_id","HDI","gdp_usd","gdp_per_capita_usd","generation")
+
+# overwrite all column names of data frame with vector
+colnames(data_tab) <- cols
+
+#display data frame so we can see changes
+data_tab %>% head()
+```
+
+## _Data Type Conversion_ ##
+For the majority of datasets you will also need to correct types that may have been parsed incorrectly. This data set is very simple typewise due to the lack of complex datetimes. Due to this the automatic type detection in `read_csv` was able to find all the correct datatypes. When working with your own data ensure that the types of all your attribute columns are correct before mving on. If you need help doing this I would reccommend looking at the documentation for `type_convert`, a function availible from the `readr` library in tidyverse. The documentation is available at https://readr.tidyverse.org/reference/type_convert.html which includes some usage examples.
+The only type conversion that may help with this data set is to make the edited `age` and `sex` columns into discrete values known as factors. This will make using them in plots easier during exploratory analysis.
+```{r tidying2}
+# making our columns factors (discrete values)
+data_tab$age <- factor(data_tab$age, levels = c("5-14","15-24","25-34","35-54","55-74","75+"))
+data_tab$sex <- as.factor(data_tab$sex)
+
+# displaying tidied data
+data_tab %>%  head()
+```
+
+## _Missing Data Considerations_ ##
+Missing data is very common in data sets and must be dealt with according to your best judgement as a data scientist. The best way to find missing data is to take a look at the data using `view` and `filter`
+```{r finding_missing_data}
+# running this command in RStudio will allow you to look at the data as if it  were and excel chart
+view(data_tab)
+# using filters to find NA entries or zeros can help locate suspicious and missing data
+data_tab %>% filter( is.na(country)
+                   | is.na(year)
+                   | is.na(sex)
+                   | is.na(age)
+                   | is.na(suicides)
+                   | is.na(pop)
+                   | is.na(suicides_per_100k)
+                   | is.na(entity_id)
+                   | is.na(gdp_usd)
+                   | is.na(gdp_per_capita_usd)
+                   | is.na(generation)
+                   | pop == 0
+                   | gdp_usd == 0
+                   | gdp_per_capita_usd == 0)
+```
+This filter function returns any rows where any of the condition is true. The result was an empty dataframe so no suspicious entries were found. From persing view I didn't find any obvious pieces of missing data. If missing data is found you as a data scientist must decide how to deal with it. Heres some more information on dealing with missing data https://towardsdatascience.com/how-to-handle-missing-data-8646b18db0d4.
+
+There was some distinct outliers that will mess up our anaysis. Populations less than 10k cause I huge scew on the `suicides_per_100k` statistic so those should be removed
+```{r remove_scew}
+data_tab <-
+  data_tab %>%
+  filter(pop >= 10000)
+```
+
+# _Exploratory Data Analysis_ #
+After data has been tidied is is ready for anaysis. Typically this analysis is done to get more information about any relationships or trends present in the data set. Once discovered these relationships and trends allow data scientists to make testable hypothesises about the data.
+
+## _Visualization_ ##
+Visulaization is a form of exploratory data analysis that is focused on grouping the data such that plots of it can show general trends. For the plotting in this section we will be using ggplot. For more information on create complex graphics with ggplot read this article: http://r-statistics.co/Complete-Ggplot2-Tutorial-Part1-With-R-Code.html.
+
+First lets look at the number of suicids per year to see if theres a general trend between time and suicide rates. In order to prevent interference from population growth overtime we will use the `suicidies_per_100k` statistic instead of the raw numbers.
+```{r distribution}
+# group by year
+# show distribution of suicide rates
+data_tab %>%
+  ggplot(aes(x=year, y=suicides_per_100k)) +
+  geom_violin(aes(group=year)) +
+  geom_smooth(method=lm)
+  labs(title="Suicide Rates Over Time",
+       x = "year",
+       y = "Suicides per 100k people")
+```
+This graph doesn't show an obvious trend between year and suicide rates so we'll try grouping by some other variables
+
+
+```{r age_group_distribution}
+data_tab %>%
+  filter(suicides > 0) %>%
+  ggplot(aes(x=year, y=suicides_per_100k)) +
+  geom_point(aes(group=year)) +
+  geom_smooth(method=lm) +
+  facet_wrap(~age)
+  labs(title="Suicide Rates Over Time",
+       x = "year",
+       y = "Suicides per 100k people")
+```
+This graph seems to show a positive coorelation between age and suicide rates. We'll investigate this more in the statistical measures section below.
+
+```{r generation_distribution}
+data_tab %>%
+  ggplot(aes(x=year, y=suicides_per_100k)) +
+  geom_point(aes(group=year)) +
+  geom_smooth(method=lm) +
+  facet_wrap(~generation)
+  labs(title="Suicide Rates Over Time",
+       x = "year",
+       y = "Suicides per 100k people")
+```
+This graph shows an interesting trend. The Suicide rates rose each year for all except boomers and gen z. This is curious because our overall graph showed a slight downward trend for suidice rates over time. We'll investigate this more in the statistical measures setction.
+
+```{r HDI_distribution}
+data_tab %>%
+  ggplot(aes(x=HDI, y=suicides_per_100k)) +
+  geom_point() +
+  geom_smooth(method=lm)
+  labs(title="Suicide Rates Over Time",
+       x = "year",
+       y = "Suicides per 100k people")
+```
+This graph shows a large positive coorelation between HDI and suicide rate. We will revisit this relationship in the machine learning section where we attempt to create a linear fit for the data.
+
+
+## _Statistical Measures_ ##
+Now that we have visualized the data and found some relationships we'd like to investigate it makes sense to look more closely at them using some statistical measures. 
+
+First we will investigate the impact of age on suicide rates. We will find the averages for each age range.
+```{r age_statistics}
+data_tab %>%
+  group_by(age) %>%
+  summarize(suicides_per_100k_for_age = sum(suicides)/(sum(pop)/100000))
+```
+
+Next lets investigate the impact of generation in a similar manner
+```{r generation_statistics}
+data_tab %>%
+  group_by(generation) %>%
+  summarize(suicides_per_100k_for_age = sum(suicides)/(sum(pop)/100000)) %>%
+  arrange(suicides_per_100k_for_age)
+```
+
+For more practice manipulating r data frames using dplyr functions like `group_by` and `summarize` check out https://www3.nd.edu/~steve/computing_with_data/24_dplyr/dplyr.html.
+
+# _Machine Learning_ #
+Machine learning is a procedure that is used to find patterns in a data set that can be used to predict values. A very basic form of this is regression. We will be using linear regression to create a model of the data such that given the HDI of a country not in the data set we could predict the suicide rate.
+
+```{r lm1}
+lin_fit1 <- lm(suicides_per_100k~HDI, data=data_tab)
+lin_fit1 %>% broom::tidy()
+```
+This fits our data fairly well as shown by the incredibly low p value of the generate coefficent for HDI. However from our exploratory data analysis we know that age and generation also have and impact so lets add those to the model. Logically we know that age and generation have a relationship so we will create joint terms in the model represented by * in R
+```{r lm2}
+lin_fit2 <- lm(suicides_per_100k~HDI+age*generation, data=data_tab)
+lin_fit2 %>% broom::tidy()
+```
+
+Now that we have 2 models we can check to see if our expanded model fits the data better using an ANOVA test
+```{r anova}
+anova(lin_fit1, lin_fit2)
+```
+Our second model has a lower RSS value indicating a lower sum of squared residuals and thus a tighter fit to our data. Additionally the p value of our model is $2.2*10^{-16}$ which is significant at a .05 level meaning our model fits the data significantly better than a model with no relationship (the null hypothesis).
+
+
